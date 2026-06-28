@@ -1,0 +1,13 @@
+{
+  "session": "giving",
+  "root": "/Users/robertbolohan/Documents/Coding/my-giving",
+  "groups": {
+    "front": ["admin", "mobile"],
+    "back": ["api"]
+  },
+  "projects": [
+    { "name": "api",    "path": "my-giving-api",        "command": "npm run dev" },
+    { "name": "admin",  "path": "my-giving-admin",       "command": "npm run dev" },
+    { "name": "mobile", "path": "my-giving-mobile-sim",  "command": "npm run dev" }
+  ]
+}
