@@ -189,11 +189,11 @@ run_vscode() {
   local dirs=()
   while IFS=$'\t' read -r name dir cmdline port; do
     matched=1
+    dirs+=("$dir")
     if [ -z "$cmdline" ]; then
-      echo "skip $name: no \"command\" in config (nothing to run)"
+      echo "$name: no \"command\" in config — opening VSCode only"
       continue
     fi
-    dirs+=("$dir")
     write_task "$name" "$dir" "$cmdline" "$port"
   done < <(select_projects "$@")
   [ "$matched" = 1 ] || die "no projects matched: $*"
