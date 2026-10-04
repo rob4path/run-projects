@@ -1,339 +1,235 @@
-# dev — open projects in VSCode and run their dev servers there
+# run-projects
 
-A small CLI that, for a group of projects, **opens each project folder in its own VSCode
-window** and **runs its dev server in that window's integrated terminal**, so you see the
-live server logs right inside VSCode.
+Start a group of local development projects with one command. Run servers in **VS Code**, in **Warp split panes**, or in the **background** with log files. Check their status and stop them individually or as a group.
 
-Everything lives in this folder: `~/Documents/Coding/scripts/`
-- `dev.sh` — the program.
-- `tmm.config.json` — the **teamm** project group (run it as `tmm`).
-- `giving.config.json` — the **my-giving** project group (run it as `giving`).
-- `<name>.config.json` — one file per additional group you add (run it as `<name>`).
+The launcher is a single Bash script with JSON configuration. It can run Node.js, Python, Flutter, or any other project with a shell command.
 
-**The command name = the config's filename.** A file `<name>.config.json` is driven by a
-`<name>` command (a PATH symlink to `dev.sh`). So `tmm.config.json` → `tmm`,
-`giving.config.json` → `giving`. `dev` itself is the umbrella tool (`dev wrap`,
-`dev config`, `dev -c <name> …`); it has no group of its own. All these commands are
-symlinks to `dev.sh`, so they run from any directory.
+## Requirements
 
-> **Where is the `tmm` alias defined? Not in the JSON.** The alias is the *command*,
-> created as a symlink on your PATH by `dev wrap`:
-> `/opt/homebrew/bin/tmm → …/scripts/dev.sh`. The script sees the name it was invoked as
-> (`tmm`) and loads the matching `tmm.config.json`. So renaming the command = renaming the
-> file **and** updating the symlink (use `dev wrap <newname>`). The `.json` only describes
-> *what* runs, never the command name.
+- **macOS** and Bash (the built-in Bash works). Editor/window integration uses macOS tools; Windows and Linux are not currently supported.
+- **Node.js** available as `node`, used to read JSON and generate editor files. The launcher has no npm dependencies.
+- Your projects' own runtimes and dependencies, installed separately.
+- **VS Code** for `vscode` mode, or **Warp** installed at `/Applications/Warp.app` for `warp` mode. Neither is needed for background mode.
+- `lsof` if you configure a port to free before starting a server.
 
----
+For VS Code, enable the `code` command through the Command Palette: **Shell Command: Install 'code' command in PATH**. The script also falls back to `/Applications/Visual Studio Code.app`.
 
-## Config file format — `<name>.config.json`
+## Quick start
 
-A fully annotated example:
+```bash
+git clone https://github.com/rob4path/run-projects.git
+cd run-projects
+chmod +x dev.sh
+cp example.config.json myapp.config.json
+```
 
-```jsonc
+Edit `myapp.config.json` before starting anything. Set `root` to your projects' base directory, and change each project's `path` and `command`. Remove entries you do not need.
+
+For example, if your folders look like this:
+
+```text
+Coding/
+├── run-projects/
+│   ├── dev.sh
+│   └── myapp.config.json
+└── myapp/
+    ├── backend/
+    ├── frontend/
+    ├── mobile/
+    └── docs/
+```
+
+The example's `"root": "../myapp"` already resolves to the right directory. Relative roots resolve from the **config file's directory**, regardless of where you run the command. Use an absolute root if your projects live elsewhere. `~` and `$HOME` inside JSON paths are not expanded.
+
+Check the configuration, then start the default projects:
+
+```bash
+./dev.sh -c myapp status
+./dev.sh -c myapp up          # starts api + web in one shared VS Code window
+./dev.sh -c myapp down all    # stops tracked servers; leaves windows open
+```
+
+On the first VS Code launch, allow automatic tasks when prompted. You can also use **Tasks: Manage Automatic Tasks → Allow Automatic Tasks**, then reload the window. Server logs appear in integrated terminals.
+
+Prefer background servers with no editor?
+
+```bash
+./dev.sh -c myapp run
+./dev.sh -c myapp status
+tail -f .dev-logs/myapp-api.log
+# Press Ctrl+C to stop tailing; the server keeps running.
+./dev.sh -c myapp down all
+```
+
+The example does not create projects or install their dependencies. Each selected project directory must already exist, and its command must work when run from that directory.
+
+## Example JSON
+
+[example.config.json](example.config.json) is a complete, copyable **strict JSON** file with a backend, frontend, optional mobile app, and a docs folder. Local `*.config.json` files are ignored by Git; the example is the only exception.
+
+A smaller configuration for just two servers is:
+
+```json
 {
-  // Label for this group. Used internally (e.g. PID filenames) — NOT the command name.
-  // The command name comes from the FILENAME (tmm.config.json -> `tmm`).
-  "session": "teamm",
-
-  // Base folder for the group. Every project "path" below is resolved against this.
-  // Optional — if omitted, paths resolve against the folder the config file is in.
-  // May be absolute (shown here) or relative to the config file.
-  "root": "/Users/robertbolohan/Documents/Coding/teamm",
-
-  // How `up` runs the servers (see "Run modes"). Optional, default "vscode".
-  //   "vscode" — each project in its own VSCode window (server in its terminal)
-  //   "warp"   — Warp opens a window with native split panes (all logs together)
+  "session": "myapp",
+  "root": "../myapp",
   "mode": "vscode",
-
-  // Optional named subsets. Each key is an alias you can pass to up/down/code,
-  // expanding to the listed project names. e.g. `tmm up expo` -> mobile + guest.
-  "groups": {
-    "main": ["api", "web"],
-    "expo": ["mobile", "guest"]
-  },
-
-  // The projects this group can open/run. Order here = order things launch.
   "projects": [
     {
-      // Short id you type in commands (`tmm down web`). Also used as the VSCode task
-      // label and the PID filename. Keep it unique within the group.
+      "name": "api",
+      "path": "backend",
+      "command": "npm run dev",
+      "isMain": true
+    },
+    {
       "name": "web",
-
-      // Folder to open. Relative to "root" above, or an absolute path for a project
-      // located anywhere else on disk.
-      "path": "teamm-web",
-
-      // The dev command, run in the project's VSCode integrated terminal.
-      // OMIT this field to make the project openable but not runnable — `up` skips it
-      // (handy for things like an e2e/test folder).
-      "command": "npm start",
-
-      // Optional. If any project sets "isMain": true, then `tmm up` with NO names runs
-      // only the isMain ones. `tmm up all` ignores this and runs everything.
-      // Defaults to false when omitted.
-      "isMain": true,
-
-      // Optional TCP port. If set, whatever is listening on it is killed right before
-      // this server starts (clears a stale process holding the port).
-      "port": 8888
+      "path": "frontend",
+      "command": "npm run dev",
+      "isMain": true
     }
   ]
 }
 ```
 
-| Field | Where | Required | Purpose |
-|---|---|---|---|
-| `session` | top | no (defaults to `dev`) | Internal label for the group (PID file prefix). Not the command name. |
-| `root` | top | no (defaults to config's folder) | Base dir that project `path`s resolve against. |
-| `mode` | top | no (default `vscode`) | How `up` runs servers: `vscode` or `warp` (see Run modes). |
-| `groups` | top | no | Named subset aliases → lists of project `name`s. |
-| `projects[].name` | per project | **yes** | Id used in commands, the VSCode task label, and PID file. |
-| `projects[].path` | per project | **yes** | Folder to open (relative to `root`, or absolute). |
-| `projects[].command` | per project | no | Dev command to run. Omit → project is skipped by `up`. |
-| `projects[].isMain` | per project | no | Marks a default project for bare `up`. |
-| `projects[].port` | per project | no | TCP port to free (kill its listener) right before the server starts. |
+Save this as `myapp.config.json`. JSON does not allow comments or trailing commas.
 
-> `.config.json` files use strict JSON (the comments above are just for illustration —
-> don't put `//` comments in your real file). Every list/object item needs a comma
-> except the last one.
+### Fields
 
----
+| Field | Required | Meaning / default |
+| --- | --- | --- |
+| `session` | No | Label for PID files, logs, workspaces, and Warp launch configs. Defaults to `dev`. Use a different label for each group to avoid collisions. |
+| `root` | No | Base folder for project paths. Absolute, or relative to the config file. Defaults to the config file's directory. |
+| `mode` | No | `vscode` (default), `warp`, or `run`. Used by `up`; an explicit mode command overrides it. |
+| `groups` | No | Object mapping subset names to arrays of exact project names. |
+| `projects` | Yes | Array of project objects, launched in the order listed. |
+| `projects[].name` | Yes | Unique project identifier used for selection, tasks, logs, and PID files. |
+| `projects[].path` | Yes | Project directory relative to `root`, or an absolute directory. Use `.` for the root itself. |
+| `projects[].command` | No | Shell command executed in the project directory. Without it, VS Code opens the folder only; Warp/background modes skip it. |
+| `projects[].isMain` | No | Defaults to `false`. If any project sets it to `true`, bare `up` selects only those projects. Otherwise bare `up` selects all. |
+| `projects[].workspace` | No | Defaults to `false`. In VS Code mode, selected projects with `true` share a multi-root window; others get separate windows. Also applies to `code`. |
+| `projects[].port` | No | Optional TCP port to free before running the command. This terminates processes using that port; it does **not** set the server's port. Omit unless you need it. |
 
-## Run modes
+Use simple names such as `myapp`, `api`, and `web`; avoid slashes, quotes, and whitespace in session/project identifiers. Commands are executed as shell code, so use configurations you trust. For straightforward PID tracking, prefer one foreground command (for example, `npm run dev`), rather than backgrounding it with `&`.
 
-`up` starts a group's servers one of two ways, picked by the config's `mode` (default
-`vscode`). Force a mode regardless of config with `<group> vscode` or `<group> warp`. Both
-modes record each server's PID, so `status` and `down <name>` work the same in either.
+### How the full example behaves
 
-**`vscode`** (default) — each project opens in its **own VSCode window**; its dev server
-runs in that window's integrated terminal (logs inside VSCode). Implemented by writing a
-small `.vscode/tasks.json` (`runOn: folderOpen`) into each project folder.
-- First time per machine VSCode asks **"Allow Automatic Tasks"** → *Allow* (or Command
-  Palette → *Tasks: Manage Automatic Tasks*). Until allowed, the server won't auto-start.
-- If a project already has its own `tasks.json`, `dev` won't overwrite it — it warns and
-  leaves it alone.
+- `up` starts `api` and `web`, since both have `isMain: true`. They share a VS Code window because both have `workspace: true`.
+- `up all` also starts `mobile` in a separate window and opens `docs` without a server.
+- `up frontend` selects the `web` and `mobile` projects.
+- `up fullstack` selects `api` and `web`.
+- `code docs` opens the docs folder.
 
-**`warp`** — generates a Warp launch configuration at
-`~/.warp/launch_configurations/<session>.yaml` and opens it, so **Warp** shows a window
-with two tabs: **`<group> logs`** (native split panes, one per server, mouse-resizable) and
-**`work`** (a free shell in the group root, focused on open). Switch tabs with `Cmd+]` /
-`Cmd+[` or click. Warp owns the panes; `down`/`status` still work via the recorded PIDs,
-but per-project restart is manual. Warp only.
+`isMain` controls the default selection; it does not stop you from selecting another project explicitly.
 
----
+## Optional commands on your PATH
 
-## Prerequisites (one-time)
+You can always use `./dev.sh -c myapp ...`. To call it from any directory, create a `dev` symlink in your own bin directory:
 
-- **Node** — already installed (used to read the config and write the run files).
-- **VSCode** (default mode) — with the `code` CLI on PATH preferred (Command Palette →
-  *Shell Command: Install 'code' command in PATH*); otherwise falls back to VSCode.app.
-- **Warp** (for `warp` mode) — install Warp.app.
+```bash
+# Run from the run-projects directory.
+mkdir -p "$HOME/.local/bin"
+ln -s "$PWD/dev.sh" "$HOME/.local/bin/dev"
+export PATH="$HOME/.local/bin:$PATH"
+```
 
----
+Add the `export PATH` line to your shell startup file (for example, `~/.zshrc` on macOS) to keep it in new terminals. If a command named `dev` already exists, use a different symlink name and pass `-c myapp` explicitly.
+
+Give a project group its own command:
+
+```bash
+dev wrap myapp     # creates the myapp command; keeps an existing config
+myapp status
+myapp up
+myapp down all
+```
+
+`wrap` places the symlink in `/opt/homebrew/bin` if it is writable, otherwise in `~/.local/bin`. Ensure the chosen directory is on your PATH. If the config does not exist, `wrap` creates a starter config beside `dev.sh`; edit its root and projects before running it.
+
+The **command name selects the config filename**: `myapp` loads `myapp.config.json`. The JSON `session` is a runtime label and does not create a command.
+
+Keep the checkout in place after installing symlinks; moving or deleting it breaks those commands. To uninstall a symlink, remove only the link you created, for example `rm "$HOME/.local/bin/dev"`.
 
 ## Commands
 
-Drive the **teamm** group with `tmm`, the **my-giving** group with `giving`. Every group
-command takes the same subcommands (shown here as `<group>`):
+The table uses `myapp`, installed with `dev wrap myapp`. Without a wrapper, replace `myapp` with `./dev.sh -c myapp`.
+
+| Command | Behavior |
+| --- | --- |
+| `myapp` / `myapp menu` | Interactive picker: numbers, project names, subsets, `all`, Enter for defaults, or `q` to quit. Bare invocation shows the picker only in a terminal. |
+| `myapp up [names...]` | Start selected projects in the configured mode. No names selects main projects (or all if none are marked). |
+| `myapp up all` | Select every project. |
+| `myapp vscode [names...]` | Force VS Code mode. |
+| `myapp warp [names...]` | Force Warp mode. |
+| `myapp run [names...]` | Force background mode. |
+| `myapp status` | List all projects and tracked server PIDs. |
+| `myapp down api` | Stop the selected tracked server and its child processes. |
+| `myapp down all` | Stop all tracked servers in this group, keeping windows open. |
+| `myapp down` | Stop this group's tracked servers and attempt to close its VS Code windows. |
+| `myapp down --quit-all` | Quit the entire VS Code app, including unrelated windows. Does not separately stop background or Warp servers. |
+| `myapp code [names...]` | Open selected folders/workspaces in VS Code without generating server tasks. Existing automatic tasks may still run. |
+| `myapp kill 3000 8080` | Terminate processes using the specified TCP ports. |
+| `myapp config` | Open the launcher's folder in VS Code to edit configs. |
+| `dev wrap <name>` | Create a group command and a starter config if missing. |
+| `dev help` | Show CLI help. |
+| `dev down` | Attempt to close configured groups' VS Code windows. Does not separately stop background or Warp servers. |
+
+A group name expands to its exact members. Other selection arguments match project names by **substring**, so `api` also selects a project named `api-worker`. You can mix selections, for example `myapp up frontend api`. `all` overrides other filters. Selection preserves config order.
+
+You can also use an explicit config path or environment variable:
 
 ```bash
-<group>                  # (no command) interactive picker — lists groups + numbered
-                         #   projects; choose by number/name/group, 'all', or Enter=main
-<group> up               # run MAIN projects using the group's mode (see "isMain")
-<group> up all           # run every project in the group
-<group> up api web       # only a subset (match by name or group alias)
-<group> vscode [names]   # force VSCode mode (a window per project)
-<group> warp [names]     # force Warp mode (native split panes, all logs in one window)
-<group> status           # list the group's projects and which are running
-<group> down <name>      # stop just that one server
-<group> down all         # stop ALL of this group's servers
-<group> down             # quit ALL of VSCode (every window, all groups)
-<group> kill 8888 3000   # kill whatever is listening on those TCP ports
-<group> code mobile      # just open folder(s) in VSCode; don't run anything
-<group> config           # open the scripts folder to edit configs
-dev help                 # full help
+./dev.sh -c ./myapp.config.json status
+DEV_CONFIG=/absolute/path/to/myapp.json ./dev.sh status
 ```
 
-Examples for your projects:
-```bash
-tmm up                 # teamm: only the isMain projects (api, web)
-tmm up all             # teamm: every project (api, web, mobile, guest)
-tmm up expo            # teamm group alias: mobile + guest
-tmm down web           # stop just the web server
-giving up              # my-giving: its isMain projects
-```
+An explicit `-c` takes precedence over `DEV_CONFIG`. A group wrapper selects its own config.
 
-### Interactive picker
+## Run modes and generated files
 
-Run a group command with **no arguments** (in a terminal) to get a menu:
+**VS Code:** writes `<project>/.vscode/tasks.json` with a `dev: <name>` shell task that runs on folder open. An existing file without that task label is left untouched; a file containing the label is rewritten. Projects marked `workspace: true` also generate `<root>/<session>.code-workspace`, rewritten for the current selection. Allow automatic tasks only in trusted projects.
 
-```
-$ tmm
-teamm — what do you want to run?
-Groups:  main (api+web)   expo (mobile+guest)
+**Warp:** writes `~/.warp/launch_configurations/<session>.yaml` and opens it. The launch has a logs tab with one pane per runnable project and a work tab with a shell in the group root. Existing launch configuration files with the same session name are overwritten. Stopping tracked servers leaves Warp windows open.
 
-   1) api        ● running
-   2) web
-   3) mobile
-   4) guest
-   5) e2e                    (no command)
+**Background:** starts detached servers with `nohup`. Logs go to `<launcher>/.dev-logs/<session>-<name>.log` and are replaced when that server starts again. Re-running `run` skips a server whose tracked PID is still alive.
 
-Select (numbers e.g. 1 3, names, or a group; 'all'=everything, Enter=main, q=quit) >
-```
-Type any mix of **numbers** (`1 3` or `1,3`), **project names**, or a **group name**
-(`expo`); `all` runs everything, **Enter** runs the `isMain` projects, `q` cancels. The
-chosen projects then launch exactly like `<group> up …`. Running projects are marked
-`● running`. (Also available explicitly as `<group> menu`.)
+All modes record PIDs under `<launcher>/.dev-pids/`. Only servers launched by this tool are tracked. PID state is local and may become stale, especially after a reboot; check the reported process if a status seems wrong.
 
-### Which projects run by default — `isMain`
+Logs, PID files, personal configs, and generated workspaces are ignored in this repository. The task/workspace files written into **other project repositories** are governed by those repositories' own `.gitignore` rules.
 
-`<group> up` with no names runs only the projects flagged `"isMain": true` in the config:
-```jsonc
-{ "name": "api", "path": "teamm-api", "command": "npm run dev", "isMain": true },
-{ "name": "mobile", "path": "teamm-mobile", "command": "npm start", "isMain": false }
-```
-Run everything with `<group> up all`, or name specific projects/groups. (If no project is
-flagged `isMain`, `up` with no names runs them all — backward compatible.)
+### Environment options
 
-### Stopping (works in either mode)
-- One server → `<group> down <name>` (e.g. `tmm down web`). Each server records its PID
-  when it starts; `down` reads it and stops that process tree. Only stoppable this way
-  after you launched it via `<group> up`/`vscode`/`warp`.
-- All of one group's servers → `<group> down all`. Stops every tracked server but leaves
-  VSCode/Warp windows open.
-- Quit the editor entirely → `<group> down` with **no name**: quits VSCode (closes **all**
-  its windows — macOS can't quit just one; use `down all` to only stop this group's servers).
-- You can also close a Warp pane or click the trash icon on a VSCode terminal directly.
-
-### Optional env toggles
-```bash
-DEV_NO_VSCODE=1 tmm up        # only write the task files; don't open the editor
-DEV_OPEN_DELAY=2.5 tmm up api web  # seconds between opening windows (default 1.5;
-                              #   raise if VSCode merges them into one window, 0 = no gap)
-DEV_BOOT_DELAY=4 tmm up       # extra seconds after the 1st window if VSCode was cold (default 3)
-dev -c giving up              # same as `giving up` (pick a config by name)
-DEV_CONFIG=/path/x.json dev up  # use an exact config file
-```
-
-> Note: `down` quits **all** VSCode windows (the macOS CLI can't target one window). If
-> you keep unrelated things open in VSCode, just close the specific server windows
-> instead.
-
----
-
-## Add a project to an existing group
-
-Edit that group's config (e.g. `tmm.config.json` or `giving.config.json`) and add one
-entry to `projects`:
-
-```jsonc
-{ "name": "booking", "path": "booking-engine", "command": "npm start" }
-```
-- **`name`** — short label you type in commands (`tmm up booking`).
-- **`path`** — relative to the group's `root`, **or** an absolute path for a project
-  located anywhere else.
-- **`command`** — its dev command.
-- JSON rule: every entry needs a trailing comma **except the last one**.
-
-Then `tmm up booking` configures and opens it.
-
----
-
-## Group some projects (named subsets)
-
-Add a `groups` map to a config to name a subset, then launch it with that name:
-
-```jsonc
-{
-  "session": "teamm",
-  "root": "/Users/robertbolohan/Documents/Coding/teamm",
-  "groups": {
-    "web-stack": ["api", "web"],
-    "expo":      ["mobile", "guest"]
-  },
-  "projects": [ /* ... */ ]
-}
-```
-```bash
-tmm up web-stack         # opens api + web
-tmm up expo             # opens mobile + guest
-tmm up expo api         # mix a group with a single project -> mobile, guest, api
-```
-Each project still gets its own VSCode window. A name that matches a group expands to its
-members; any other name still matches projects by substring. Currently defined:
-**teamm** → `web-stack`, `expo`; **my-giving** (`giving`) → `front` (admin+mobile),
-`back` (api).
-
-## Set up a brand-new project group — step by step
-
-Say you have a project at `~/Documents/Coding/myapp` and want a `myapp` command.
-
-1. **Create the command + a starter config:**
-   ```bash
-   dev wrap myapp
-   ```
-   Makes a `myapp` command on your PATH and a `myapp.config.json` here (if missing).
-
-2. **Edit `~/Documents/Coding/scripts/myapp.config.json`:**
-   ```jsonc
-   {
-     "session": "myapp",
-     "root": "/Users/robertbolohan/Documents/Coding/myapp",
-     "projects": [
-       { "name": "api", "path": "backend",  "command": "npm run dev" },
-       { "name": "web", "path": "frontend", "command": "npm run dev" }
-     ]
-   }
-   ```
-   - `session` is just a label for the group (keep it unique).
-   - `root` is the project's base folder; `path`s are relative to it.
-
-3. **Run it:**
-   ```bash
-   myapp up        # open each folder + run its server in VSCode
-   myapp down
-   ```
-
-(You don't have to wrap — `dev -c myapp up` also works without a dedicated command.)
-
----
-
-## Configured groups
-
-### teamm — `tmm`  (mode: `vscode`)
-`root: ~/Documents/Coding/teamm` — `tmm up` opens each project in its own VSCode window.
-| name | folder | command |
-|---|---|---|
-| api | teamm-api | npm run dev |
-| web | teamm-web | npm start |
-| mobile | teamm-mobile | npm start |
-| mobile:ios | teamm-mobile | npm run ios |
-| guest | teamm-guest | npm start |
-| guest:ios | teamm-guest | npm run ios |
-
-### my-giving — `giving`  (mode: `vscode`)
-`root: ~/Documents/Coding/my-giving`
-| name | folder | command |
-|---|---|---|
-| api | my-giving-api | npm run dev |
-| admin | my-giving-admin | npm run dev |
-| mobile | my-giving-mobile-sim | npm run dev |
-
-(`my-giving-e2e` is a Playwright test runner, not a dev server, so it's not included —
-run its tests directly with `npm test` in that folder when needed.)
-
----
+| Variable | Effect |
+| --- | --- |
+| `DEV_CONFIG` | Config path when invoked as `dev` / `dev.sh` without `-c`. |
+| `DEV_NO_VSCODE=1` | Generate VS Code files without opening the editor. |
+| `DEV_OPEN_DELAY` | Seconds between VS Code windows; default `1.5`. |
+| `DEV_BOOT_DELAY` | Extra settle time after a cold VS Code start; default `4`. |
+| `DEV_BOOT_TIMEOUT` | Maximum seconds to wait for the VS Code process; default `30`. |
+| `DEV_NO_OPEN=1` | Generate the Warp launch config without opening it. Warp must still be installed. |
 
 ## Troubleshooting
 
-- **Server didn't start in VSCode** → you probably haven't allowed automatic tasks yet:
-  Command Palette → *Tasks: Manage Automatic Tasks* → *Allow Automatic Tasks*, then
-  reload the window (Command Palette → *Developer: Reload Window*).
-- **"already has a tasks.json … left it untouched"** → that project had its own
-  `tasks.json`. Open it and add a task with `"runOn": "folderOpen"` running your dev
-  command, or delete the file and re-run `<group> up <name>`.
-- **VSCode didn't open at all** → install the `code` CLI (see Prerequisites); it
-  otherwise falls back to VSCode.app.
-- **`no projects matched: …`** → the name filter didn't match any `name` in the config.
-- **Want to re-run a server in an already-open window** → reload the window (Command
-  Palette → *Developer: Reload Window*), which re-triggers the folder-open task.
+- **Config not found:** copy `example.config.json` to `myapp.config.json` beside `dev.sh` and use `-c myapp`, or provide a path. Bare `dev up` expects `dev.config.json`.
+- **Directory not found:** check `root` and `path`. Relative paths start from the config's directory, not your current shell directory. Install the project's dependencies separately.
+- **Server did not start in VS Code:** allow automatic tasks, then use **Developer: Reload Window**. Reloading can launch the command again; use `down all` first if an old server is still running.
+- **Existing tasks file was left untouched:** add the task to your own `.vscode/tasks.json` manually or use background/Warp mode. Preserve existing tasks you need.
+- **No projects matched:** check the project names and subset keys. A subset lists exact project names.
+- **Group command not found:** add the directory reported by `dev wrap` to your PATH, or use `./dev.sh -c myapp ...`.
+- **Individual windows cannot close:** grant Accessibility access to your terminal in **System Settings → Privacy & Security → Accessibility**. Closing uses window titles/documents and skips windows whose titles indicate unsaved changes. You can instead close them manually. `down all` only stops servers and needs no Accessibility access.
+
+## Contributing
+
+Keep examples generic and do not commit personal configs, logs, environment files, or credentials. To check changes locally:
+
+```bash
+bash -n dev.sh
+node -e 'JSON.parse(require("fs").readFileSync("example.config.json", "utf8")); console.log("Example JSON is valid")'
+./dev.sh help
+./dev.sh -c example status
+```
+
+Try launch/stop behavior with a temporary project before opening a pull request. Use `DEV_NO_VSCODE=1` to inspect generated tasks without opening windows. Include your macOS version, run mode, command, and a sanitized configuration when reporting a problem.
+
+## License
+
+[MIT](LICENSE). You may use, modify, and redistribute the launcher under the license's terms.

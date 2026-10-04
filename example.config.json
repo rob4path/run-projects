@@ -1,0 +1,37 @@
+{
+  "session": "myapp",
+  "root": "../myapp",
+  "mode": "vscode",
+  "groups": {
+    "backend": ["api"],
+    "frontend": ["web", "mobile"],
+    "fullstack": ["api", "web"]
+  },
+  "projects": [
+    {
+      "name": "api",
+      "path": "backend",
+      "command": "npm run dev",
+      "isMain": true,
+      "workspace": true
+    },
+    {
+      "name": "web",
+      "path": "frontend",
+      "command": "npm run dev",
+      "isMain": true,
+      "workspace": true
+    },
+    {
+      "name": "mobile",
+      "path": "mobile",
+      "command": "npm start",
+      "isMain": false,
+      "workspace": false
+    },
+    {
+      "name": "docs",
+      "path": "docs"
+    }
+  ]
+}

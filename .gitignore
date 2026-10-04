@@ -1,2 +1,29 @@
+# Local project groups: copy example.config.json to <name>.config.json.
+*.config.json
+!example.config.json
+
+# Personal account/repository notes.
+/github.md
+
+# Runtime state and generated editor workspaces.
 .dev-logs/
 .dev-pids/
+*.code-workspace
+*.log
+*.pid
+
+# Local environment files and credentials.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS/editor files and dependencies.
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+node_modules/
