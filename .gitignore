@@ -1,6 +1,6 @@
 # Local project groups: copy example.config.json to <name>.config.json.
-*.config.json
-!example.config.json
+/*.config.json
+!/example.config.json
 
 # Personal account/repository notes.
 /github.md

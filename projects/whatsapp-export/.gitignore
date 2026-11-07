@@ -1,0 +1,3 @@
+.DS_Store
+# Keep downloaded conversation exports out of source control.
+WhatsApp_*.html
